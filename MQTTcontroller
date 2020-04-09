@@ -1,0 +1,133 @@
+/*********
+  author: Patrick Bollmann
+  date:   09.04.2020
+  email:  pbollman@mail.upb.de
+*********/
+
+// Load Wi-Fi library
+#define FASTLED_ESP8266_RAW_PIN_ORDER
+#include <FastLED.h>
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+#define NUM_LEDS 250
+CRGB leds[NUM_LEDS];
+#define DATA_PIN D1
+
+//wifi
+const char* ssid = "your ssid";
+const char* password = "your password";
+const char* mqtt_server = "mqtt server";
+
+// Assign output variables to GPIO pins
+const int lamp = D5;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
+
+void setup_wifi() {
+
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  randomSeed(micros());
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  String message = "";
+  for (int i = 0; i < length; i++) {
+    message += String((char)payload[i]);
+  }
+  Serial.println(message);
+  Serial.println();
+
+  if (message == "LAMPON") {
+    digitalWrite(lamp, LOW);
+  } else if (message == "LAMPOFF") {
+      digitalWrite(lamp, HIGH);
+  }else if (message == "LEDON") {
+      changeLeds(255,255,255);
+  }else if (message == "LEDOFF") {
+      changeLeds(0,0,0);
+  }else{
+    int r=0;int g=0;int b=0;  //message in form_ rgb(r, g, b) r,g,b in[0...255]
+    sscanf(message.c_str(), "rgb(%d, %d, %d)", &r, &g, &b);
+    changeLeds(r,g,b);
+  }
+
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP led controller";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      //client.publish("outTopic", "hello world");
+      // ... and resubscribe
+      client.subscribe("your mqtt topic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void changeLeds(int r,int g,int b){
+  for(int i = 0; i < NUM_LEDS; i = i + 1) {
+    leds[i] = CRGB(r,g,b);
+  }
+  FastLED.show();
+}
+
+void setup() {
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+  Serial.begin(115200);
+  
+  // Initialize the output variables as outputs
+  pinMode(lamp, OUTPUT);
+  // Set output lamp LOW to light up the connected lamp
+  digitalWrite(lamp, LOW);
+
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+}
+
+
+void loop(){
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  
+}
